@@ -42,6 +42,7 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/mount-utils"
 
+	v1qos "k8s.io/kubernetes/pkg/apis/core/v1/helper/qos"
 	utilfs "k8s.io/kubernetes/pkg/util/filesystem"
 	netutils "k8s.io/utils/net"
 
@@ -929,7 +930,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
 		util.SetNodeOwnerFunc(klet.heartbeatClient, string(klet.nodeName)))
 
 	// setup node shutdown manager
-	shutdownManager, shutdownAdmitHandler := nodeshutdown.NewManager(&nodeshutdown.Config{
+	shutdownManager := nodeshutdown.NewManager(&nodeshutdown.Config{
 		Logger:                           logger,
 		ProbeManager:                     klet.probeManager,
 		VolumeManager:                    klet.volumeManager,
@@ -948,7 +949,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
 	if err != nil {
 		return nil, fmt.Errorf("create user namespace manager: %w", err)
 	}
-	klet.admitHandlers.AddPodAdmitHandler(shutdownAdmitHandler)
+	klet.admitHandlers.AddPodAdmitHandler(shutdownManager)
 
 	// Finally, put the most recent version of the config on the Kubelet, so
 	// people can see how it was configured.
@@ -2292,9 +2293,10 @@ func (kl *Kubelet) deletePod(pod *v1.Pod) error {
 func (kl *Kubelet) rejectPod(pod *v1.Pod, reason, message string) {
 	kl.recorder.Eventf(pod, v1.EventTypeWarning, reason, message)
 	kl.statusManager.SetPodStatus(pod, v1.PodStatus{
-		Phase:   v1.PodFailed,
-		Reason:  reason,
-		Message: "Pod was rejected: " + message})
+		QOSClass: v1qos.GetPodQOS(pod), // keep it as is
+		Phase:    v1.PodFailed,
+		Reason:   reason,
+		Message:  "Pod was rejected: " + message})
 }
 
 // canAdmitPod determines if a pod can be admitted, and gives a reason if it
